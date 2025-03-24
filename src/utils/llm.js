@@ -1,9 +1,8 @@
-
 class LLMModel {
   constructor(apiKey, model) {
     this.apiKey = apiKey;
     this.model = model;
-    this.defaultPrompt = "始终以Json格式输出。";
+    this.defaultPrompt = "始终以Markdown格式输出。";
   }
 
   async sendMessage(message) {
@@ -26,6 +25,9 @@ class GLM extends LLMModel {
           content: prompt,
         },
       ],
+      response_format: {
+        type: "json_object",
+      },
     };
 
     try {
@@ -51,19 +53,14 @@ class GLM extends LLMModel {
 }
 
 export default class LLM {
+  // static LLMModel = new GLM(import.meta.env.VITE_AGENTUI_GLMTOKEN);
   static LLMModel = new GLM(
     import.meta.env.VITE_AGENTUI_GLMTOKEN
   );
-  static async executePrompt(
-    systemPrompt = this.defaultPrompt,
-    userInput = null,
-    originalData = null
-  ) {
-    const prompt = systemPrompt + userInput + originalData;
-
-    console.log('Sending to llm:', {
-      msg: prompt
-    })
+  static async executePrompt(prompt) {
+    console.log("Sending to llm:", {
+      msg: prompt,
+    });
     const data = await this.LLMModel.sendMessage(prompt);
     const response = data.choices[0].message.content;
     return response;
