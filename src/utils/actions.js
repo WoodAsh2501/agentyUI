@@ -4,7 +4,6 @@
 // // const content = useContentStore();
 // // const components = useComponentsStatusStore();
 
-import { Result } from "postcss";
 import LLM from "./llm.js";
 import * as R from "ramda";
 // import { htmlToMarkdown, markdownToHtml } from "./textConverter";
@@ -213,127 +212,135 @@ class Utils {
     ]);
 }
 
-const nodeify = (text) => ({
-  type: R.pipe(
-    R.replace(regExp.startingSelectedSign, ""),
-    R.cond([
-      [R.startsWith("#### "), R.always("h4")],
-      [R.startsWith("### "), R.always("h3")],
-      [R.startsWith("## "), R.always("h2")],
-      [R.startsWith("# "), R.always("h1")],
-      [R.startsWith("- "), R.always("listItem")],
-      [R.T, R.always("paragraph")],
-    ]),
-  )(text),
-  content: R.pipe(
-    R.replace(regExp.nodeId, ""),
-    R.replace(regExp.startingSelectedSign, ""),
-    R.replace(regExp.startingHashTag, ""),
-    R.replace(regExp.startingListMark, ""),
-    R.trim,
-  )(text),
-  parent: null,
-  children: [],
-  selected: R.startsWith("%%SELECTED%%")(text),
-  id: R.pipe(
-    R.match(regExp.nodeId),
-    R.nth(1),
-    R.defaultTo(),
-  )(text),
-});
-
-const generateIdForAllNodes = (list) => {
-  const makeIdUniqueChecker = () => {
-    const usedId = [];
-    return (id) => {
-      const isIdUnique = R.not(R.includes(id, usedId));
-      usedId.push(id);
-      return isIdUnique;
-    };
-  };
-  const isIdUnique = makeIdUniqueChecker();
-  const randomId = () =>
-    Math.random().toString(36).substring(2, 11);
-
-  const generateId = (node) =>
-    R.pipe(
-      randomId,
-      R.concat("__"), //标识符
-      R.until(isIdUnique, randomId),
-      (id) => R.assoc("id", id, node),
-    )();
-  return R.map(generateId)(list);
-};
-
-const setParentForAllNodes = (list) => {
-  const headingHierarchy = {
-    h1: 1,
-    h2: 2,
-    h3: 3,
-    h4: 4,
-    paragraph: 5,
-  };
-
-  const isHigherHeading = R.curry((thisNode, node) => {
-    const getNodeHierarchy = (node) =>
-      R.prop(R.prop("type", node))(headingHierarchy);
-
-    return R.gt(
-      getNodeHierarchy(thisNode),
-      getNodeHierarchy(node),
-    );
+class MdAst {
+  static nodeify = (_text) => ({
+    type: R.pipe(
+      R.replace(regExp.startingSelectedSign, ""),
+      R.cond([
+        [R.startsWith("#### "), R.always("h4")],
+        [R.startsWith("### "), R.always("h3")],
+        [R.startsWith("## "), R.always("h2")],
+        [R.startsWith("# "), R.always("h1")],
+        [R.startsWith("- "), R.always("listItem")],
+        [R.T, R.always("paragraph")],
+      ]),
+    )(_text),
+    content: R.pipe(
+      R.replace(regExp.nodeId, ""),
+      R.replace(regExp.startingSelectedSign, ""),
+      R.replace(regExp.startingHashTag, ""),
+      R.replace(regExp.startingListMark, ""),
+      R.trim,
+    )(_text),
+    children: [],
+    selected: R.startsWith("%%SELECTED%%")(_text),
+    id: R.pipe(
+      R.match(regExp.nodeId),
+      R.nth(1),
+      R.defaultTo(),
+    )(_text),
   });
 
-  const setParent = (node, index) => {
-    const parentNode = R.defaultTo(
-      "root",
-      R.findLast(
-        isHigherHeading(node),
-        R.slice(0, index, list),
-      ),
-    );
-    return R.assoc("parent", parentNode)(node);
+  static generateIdForAllNodes = (_list) => {
+    const makeIdUniqueChecker = () => {
+      const usedId = [];
+      return (id) => {
+        const isIdUnique = R.not(R.includes(id, usedId));
+        usedId.push(id);
+        return isIdUnique;
+      };
+    };
+    const isIdUnique = makeIdUniqueChecker();
+    const randomId = () =>
+      Math.random().toString(36).substring(2, 11);
+
+    const generateId = (node) =>
+      R.pipe(
+        randomId,
+        R.concat("__"), //标识符
+        R.until(isIdUnique, randomId),
+        (id) => R.assoc("id", id, node),
+      )();
+    return R.map(generateId)(_list);
   };
 
-  return R.addIndex(R.map)(setParent, list);
-};
+  static moveToParentForAllNodes = (_list) => {
+    const headingHierarchy = {
+      root: 0,
+      h1: 1,
+      h2: 2,
+      h3: 3,
+      h4: 4,
+      paragraph: 5,
+    };
+    
+    const getParentNodeIndex = (node, index, list) => {
+      const isHigherHeading = R.curry((thisNode, node) => {
+        const getNodeHierarchy = (node) =>
+          R.prop(R.prop("type", node))(headingHierarchy);
 
-const setChildrenForAllNodes = (list) => {
-  const setChildren = (node) => {
-    const nodeId = R.prop("id", node);
-    const matchParentNodeId = (node) =>
-      R.propEq(nodeId, "id")(R.prop("parent", node));
+        return R.gt(
+          getNodeHierarchy(thisNode),
+          getNodeHierarchy(node),
+        );
+      });
 
-    const children = R.filter(matchParentNodeId)(list);
+      return R.defaultTo(
+        0,
+        R.findLastIndex(
+          isHigherHeading(node),
+          R.slice(0, index, list),
+        ),
+      );
+    };
 
-    return R.assoc("children", children)(node);
+    const childrenLens = (node, index, list) =>
+      R.lensPath([
+        getParentNodeIndex(node, index, list),
+        "children",
+      ]);
+
+    const moveToParent = (node, index, list) => {
+      return R.pipe(
+        R.over(
+          childrenLens(node, index, list),
+          R.prepend(node),
+        ),
+        R.identity,
+        R.when(() => {
+          return index > 0;
+        }, R.reject(R.propEq(node.id, "id"))),
+      )(list);
+    };
+
+    const modifyList = (index, list) => {
+      const node = list[index];
+      const modified = moveToParent(node, index, list);
+      if (index === 0) return modified;
+      return modifyList(index - 1, modified);
+    };
+
+    return modifyList(_list.length - 1, _list);
   };
-  return R.map(setChildren)(list);
-};
 
-const cleanNonParentNodes = R.filter((node) =>
-  R.propEq("root", "parent")(node),
-);
+  static buildTree = R.pipe(
+    R.split("\n"),
+    R.map(this.nodeify),
+    R.prepend({
+      type: "root",
+      content: "",
+      children: [],
+      selected: false,
+      id: null,
+    }),
+    this.generateIdForAllNodes,
+    this.moveToParentForAllNodes,
+    R.prop(0),
+    Utils.debug,
+  );
+}
 
-const buildTree = R.pipe(
-  R.split("\n"),
-  R.map(nodeify),
-  generateIdForAllNodes,
-  setParentForAllNodes,
-  setChildrenForAllNodes,
-  // cleanNonParentNodes,
-);
-
-const tree = buildTree(md);
-
-const testJson = {
-  root: {
-    type: "root",
-    parent: null,
-    children: [],
-    id: null,
-  },
-};
+const tree = MdAst.buildTree(md);
 
 class Actions {
   static selectByPrompt = R.curry(async (selectPrompt, md) => {
@@ -388,26 +395,29 @@ class Actions {
       R.map(Utils.addSelectedSign(R.endsWith(`{#${id}}`))),
     );
 
-  static selectParent = Utils.process(() => {
-    const firstSelectedIndex = R.findIndex(
-      R.startsWith("%%SELECTED%%"),
-      md,
-    );
-
-    const hierarchyMap = {
-      "#": 1,
-      "##": 2,
-      "###": 3,
-      "####": 4,
-      "- ": "listItem",
+  static selectParent = (md) => {
+    const tree = remark().parse(md);
+    const deepMap = R.curry((fn, list) => {
+      const children = R.prop("children")(list);
+      return R.when(
+        R.isNotEmpty(children),
+        R.map(deepMap(fn)),
+      )(list);
+    });
+    const addSelectedSignWhenChildren = (node) => {
+      const chldren = R.prop("children")(node);
+      const isSelected = R.propSatisfies(
+        R.startsWith("%%SELECTED%%"),
+        "value",
+      );
+      const hasSelectedChildren = R.find(isSelected);
+      return R.when(hasSelectedChildren, R.assoc);
     };
 
-    return R.addIndex;
-  });
+    return deepMap(addSelectedSignWhenChildren, list);
+  };
 
-  static selectAllChildren = Utils.process();
-
-  static selectNthChildren = (index) => Utils.process();
+  // static selectAllChildren =
 
   static selectAll = Utils.process(
     R.map(R.concat("%%SELECTED%%")),
@@ -556,19 +566,11 @@ class Pipe {
   });
 }
 
-const flowString1 = `selectEven, delete, sortByPrompt("从小到大排序")`;
-const flowString2 = `selectByPrompt("选择奇数项"), delete, sortByPrompt("从小到大排序"), selectEven`;
-const flowString3 = `selectHead(4)`;
+const flowString1 = `selectByPrompt("选择奇数项"), delete, sortByPrompt("从小到大排序"), selectEven`;
+const flowString2 = `selectTail("1"), selectParent`;
 
-// Pipe.pipeFunction(flowString3, md).then((res) =>
+// Pipe.pipeFunction(flowString2, md).then((res) =>
 //   console.log(res),
 // );
 
-// Utils.asyncPipe(
-//   Utils.debug,
-//   Actions.selectHead(),
-//   Actions.extendSelectedLine(3),
-//   Utils.debug,
-// )(md);
-
-// class Todo {}
+// Actions.selectParent(md);
