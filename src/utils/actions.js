@@ -237,7 +237,8 @@ class MdAst {
     id: R.pipe(
       R.match(regExp.nodeId),
       R.nth(1),
-      R.defaultTo(),
+      R.defaultTo("nullId"),
+      Utils.debug,
     )(_text),
   });
 
@@ -255,12 +256,15 @@ class MdAst {
       Math.random().toString(36).substring(2, 11);
 
     const generateId = (node) =>
+      R.when(
+        R.propEq('nullId', 'id'),
       R.pipe(
         randomId,
         R.concat("__"), //标识符
         R.until(isIdUnique, randomId),
         (id) => R.assoc("id", id, node),
-      )();
+        ),
+      )(node);
     return R.map(generateId)(_list);
   };
 
