@@ -180,9 +180,10 @@ const regExp = {
 
 class Utils {
   // static debug = R.tap((value) => console.dir(value));
-  static debug = R.tap((value) =>
-    console.log(JSON.stringify(value, null, 2)),
-  );
+  static debug = R.tap((value) => {
+    console.log(JSON.stringify(value, null, 2));
+    console.log("\n");
+  });
 
   static getResponse = R.pipe(JSON.parse, R.prop("response"));
 
@@ -210,6 +211,8 @@ class Utils {
       (value) => Promise.resolve(value),
       ...fns,
     ]);
+
+  static indexedMap = R.addIndex(R.map);
 }
 
 class MdAst {
@@ -257,7 +260,7 @@ class MdAst {
 
     const generateId = (node) =>
       R.when(
-        R.propEq('nullId', 'id'),
+        R.propEq("nullId", "id"),
       R.pipe(
         randomId,
         R.concat("__"), //标识符
@@ -335,13 +338,75 @@ class MdAst {
       content: "",
       children: [],
       selected: false,
-      id: null,
+      id: "__root",
     }),
     this.generateIdForAllNodes,
     this.moveToParentForAllNodes,
     R.prop(0),
     Utils.debug,
   );
+
+  static findPath = (_predicate, _tree) => {
+    const deepFind = (_currentNode, _index = 0) => {
+      if (_predicate(_currentNode)) return [_index];
+
+      if (R.isEmpty(R.prop("children", _currentNode)))
+        return null;
+
+      const satisfiedPathList = R.pipe(
+        Utils.indexedMap(deepFind),
+        R.filter(R.complement(R.isNil)),
+      )(_currentNode.children);
+
+      if (R.isEmpty(satisfiedPathList)) return null;
+
+      return R.concat([_index], satisfiedPathList);
+    };
+
+    const flattenNestedPath = (_nestedPath) => {
+      const concatPath = (_node, _pathList) => {
+        const head = R.head(_node);
+        const restList = R.slice(1, Infinity, _node);
+
+        if (R.isEmpty(restList)) {
+          return R.append(head, _pathList);
+        }
+
+        return R.map((node) =>
+          concatPath(node, R.append(head, _pathList)),
+        )(restList);
+      };
+
+      const flattenBitNestedPathList = (
+        _nestedList,
+        _pathList,
+      ) => {
+        const isPath = (_list) => {
+          return (
+            R.is(Array, _list) && R.all(R.is(Number), _list)
+          );
+        };
+
+        if (isPath(_nestedList)) {
+          return R.append(_nestedList, _pathList);
+        }
+
+        return R.reduce(
+          (acc, _subList) =>
+            flattenBitNestedPathList(_subList, acc),
+          _pathList,
+          _nestedList,
+        );
+      };
+
+      return R.pipe(
+        (_path) => concatPath(_path, []),
+        (_path) => flattenBitNestedPathList(_path, []),
+      )(_nestedPath);
+    };
+
+    return R.pipe(deepFind, flattenNestedPath)(_tree);
+    };
 }
 
 const tree = MdAst.buildTree(md);
