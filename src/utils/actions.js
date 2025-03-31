@@ -156,20 +156,23 @@ import * as R from "ramda";
 // }
 
 const md = `# 111
-222
-333
 ## 444
-555 {#158}
-### 111
-222
-# 333
-444
-555 {#158}
-## 111
-222
-### 333
-444
-555 {#158}`;
+# 41
+## 124
+### 444 
+## 444
+## 1412
+### 444 
+# 123
+## 444
+### 444 {#1234}
+### 123
+## 444 
+### 444 
+### 444 
+### 444 
+# 123
+`;
 
 const regExp = {
   nodeId: /\{#(\w+)\}/,
@@ -180,10 +183,15 @@ const regExp = {
 
 class Utils {
   // static debug = R.tap((value) => console.dir(value));
-  static debug = R.tap((value) => {
+  static debug = (value) => {
     console.log(JSON.stringify(value, null, 2));
     console.log("\n");
-  });
+  };
+
+  static stepDebug = (_fnName) => (_value) => {
+    console.dir({ [_fnName]: _value });
+    return _value;
+  };
 
   static getResponse = R.pipe(JSON.parse, R.prop("response"));
 
@@ -241,7 +249,6 @@ class MdAst {
       R.match(regExp.nodeId),
       R.nth(1),
       R.defaultTo("nullId"),
-      Utils.debug,
     )(_text),
   });
 
@@ -261,11 +268,11 @@ class MdAst {
     const generateId = (node) =>
       R.when(
         R.propEq("nullId", "id"),
-      R.pipe(
-        randomId,
-        R.concat("__"), //标识符
-        R.until(isIdUnique, randomId),
-        (id) => R.assoc("id", id, node),
+        R.pipe(
+          randomId,
+          R.concat("__"), //标识符
+          R.until(isIdUnique, randomId),
+          (id) => R.assoc("id", id, node),
         ),
       )(node);
     return R.map(generateId)(_list);
@@ -280,7 +287,7 @@ class MdAst {
       h4: 4,
       paragraph: 5,
     };
-    
+
     const getParentNodeIndex = (node, index, list) => {
       const isHigherHeading = R.curry((thisNode, node) => {
         const getNodeHierarchy = (node) =>
@@ -331,6 +338,7 @@ class MdAst {
   };
 
   static buildTree = R.pipe(
+    R.trim,
     R.split("\n"),
     R.map(this.nodeify),
     R.prepend({
@@ -343,7 +351,6 @@ class MdAst {
     this.generateIdForAllNodes,
     this.moveToParentForAllNodes,
     R.prop(0),
-    Utils.debug,
   );
 
   static findPath = (_predicate, _tree) => {
@@ -399,17 +406,64 @@ class MdAst {
         );
       };
 
+      const insertChildrenPath = R.map(
+        R.chain((_index) => ["children", _index]),
+      );
+
       return R.pipe(
         (_path) => concatPath(_path, []),
         (_path) => flattenBitNestedPathList(_path, []),
+        R.map(R.slice(1, Infinity)),
+        insertChildrenPath,
       )(_nestedPath);
     };
 
     return R.pipe(deepFind, flattenNestedPath)(_tree);
-    };
-}
+  };
 
-const tree = MdAst.buildTree(md);
+  static convertToMd = (_tree) => {
+    const getMd = (_accMd, _node) => {
+      const typeDict = {
+        h1: "# ",
+        h2: "## ",
+        h3: "### ",
+        h4: "#### ",
+        listItem: "- ",
+      };
+      const content = R.pipe(
+        R.prop("content"),
+        R.concat(
+          R.defaultTo(
+            "",
+            R.prop(R.prop("type", _node), typeDict),
+          ),
+          R.__,
+        ),
+        R.when(
+          () =>
+            R.pipe(
+              R.prop("id"),
+              R.complement(R.startsWith("__")),
+            )(_node),
+          R.concat(R.__, ` {#${_node.id}}`),
+        ),
+        R.when(
+          () => R.prop("selected", _node),
+          R.concat("%%SELECTED%%", R.__),
+        ),
+      )(_node);
+
+      const childrenList = R.prop("children", _node);
+      if (R.isEmpty(childrenList))
+        return R.append(content, _accMd);
+
+      const childrenMd = R.reduce(getMd, [], childrenList);
+      return R.concat(_accMd, [content, ...childrenMd]);
+    };
+
+    return R.pipe(getMd, R.join("\n"), R.trim)([], _tree);
+  };
+}
 
 class Actions {
   static selectByPrompt = R.curry(async (selectPrompt, md) => {
@@ -465,28 +519,35 @@ class Actions {
     );
 
   static selectParent = (md) => {
-    const tree = remark().parse(md);
-    const deepMap = R.curry((fn, list) => {
-      const children = R.prop("children")(list);
-      return R.when(
-        R.isNotEmpty(children),
-        R.map(deepMap(fn)),
-      )(list);
-    });
-    const addSelectedSignWhenChildren = (node) => {
-      const chldren = R.prop("children")(node);
-      const isSelected = R.propSatisfies(
-        R.startsWith("%%SELECTED%%"),
-        "value",
+    const tree = MdAst.buildTree(md);
+    const pathList = MdAst.findPath(
+      R.propEq(true, "selected"),
+      tree,
+    );
+
+    const parentPathLensList = R.map(
+      R.pipe(R.slice(0, -2), (_path) => R.lensPath(_path)),
+      pathList,
+    );
+
+    const selectNode = R.when(
+      (_node) => !R.propEq("root", "type", _node),
+      R.assoc("selected", true),
+    );
+
+    const afterSelectTree = (_tree, _lensPathList) =>
+      R.reduce(
+        (_accTree, _lensPath) =>
+          R.over(_lensPath, selectNode, _accTree),
+        _tree,
+        _lensPathList,
       );
-      const hasSelectedChildren = R.find(isSelected);
-      return R.when(hasSelectedChildren, R.assoc);
-    };
 
-    return deepMap(addSelectedSignWhenChildren, list);
+    return R.pipe(afterSelectTree, MdAst.convertToMd)(
+      tree,
+      parentPathLensList,
+    );
   };
-
-  // static selectAllChildren =
 
   static selectAll = Utils.process(
     R.map(R.concat("%%SELECTED%%")),
@@ -494,14 +555,14 @@ class Actions {
 
   static selectHead = (count = 1) =>
     Utils.process(
-      R.addIndex(R.map)((line, index) =>
+      Utils.indexedMap((line, index) =>
         Utils.addSelectedSign(() => index < count)(line),
       ),
     );
 
   static selectTail = (count = 1) =>
     Utils.process((lines) =>
-      R.addIndex(R.map)((line, index) =>
+      Utils.indexedMap((line, index) =>
         Utils.addSelectedSign(
           () => index >= lines.length - count,
         )(line),
@@ -514,7 +575,7 @@ class Actions {
         R.startsWith("%%SELECTED%%"),
         md,
       );
-      return R.addIndex(R.map)((line, index) =>
+      return Utils.indexedMap((line, index) =>
         Utils.addSelectedSign(
           () =>
             index >= firstSelectedIndex &&
@@ -594,18 +655,29 @@ class Actions {
 
 class Pipe {
   /**
-   * 解析带有参数的函数字符串
+   * 解析函数字符串
    * @param {String} 函数字符串
-   * @returns {Function} 函数对象
+   * @returns {[Function, Function]} 目标函数与debug函数组成的数组
    */
-  static parseParamsFunc = R.when(
-    R.test(/(\w+)\(".*"\)/),
-    R.pipe(
-      R.match(/(\w+)\("([^"]*)"\)/),
-      R.slice(1, Infinity),
-      ([fnName, arg]) => Actions[fnName](arg),
-    ),
-  );
+  static parseFuncString = (_funcString) => {
+    if (R.has(_funcString, Actions))
+      return [
+        R.prop(_funcString, Actions),
+        Utils.stepDebug(_funcString),
+      ];
+    if (R.test(/(\w+)\(".*"\)/, _funcString)) {
+      const [fnName, arg] = R.pipe(
+        R.match(/(\w+)\("([^"]*)"\)/),
+        R.slice(1, Infinity),
+      )(_funcString);
+      return [
+        Actions[fnName](arg),
+        Utils.stepDebug(_funcString),
+      ];
+    }
+    console.error("Function not exist:", _funcString);
+    return _funcString;
+  };
 
   /**
    * 解析工作流字符串，转换为函数数组
@@ -614,13 +686,8 @@ class Pipe {
    */
   static parseFlow = R.pipe(
     R.split(","),
-    R.map(
-      R.pipe(
-        R.trim,
-        R.when(R.has(R.__, Actions), R.prop(R.__, Actions)),
-        Pipe.parseParamsFunc,
-      ),
-    ),
+    R.map(R.pipe(R.trim, Pipe.parseFuncString)),
+    R.flatten,
   );
 
   /**
@@ -631,15 +698,19 @@ class Pipe {
    */
   static pipeFunction = R.curry((flowString, md) => {
     const flow = this.parseFlow(flowString);
-    return Utils.asyncPipe(...flow)(md);
+    return Utils.asyncPipe(
+      R.trim,
+      Utils.stepDebug("input"),
+      ...flow,
+    )(md);
   });
 }
 
 const flowString1 = `selectByPrompt("选择奇数项"), delete, sortByPrompt("从小到大排序"), selectEven`;
 const flowString2 = `selectTail("1"), selectParent`;
 
-// Pipe.pipeFunction(flowString2, md).then((res) =>
-//   console.log(res),
-// );
+Pipe.pipeFunction(flowString2, md).then((result) =>
+  console.log(result),
+);
 
-// Actions.selectParent(md);
+// console.log(Actions.selectParent(md));
