@@ -525,7 +525,7 @@ class Actions {
       tree,
     );
 
-    const parentPathLensList = R.map(
+    const parentLensPathList = R.map(
       R.pipe(R.slice(0, -2), (_path) => R.lensPath(_path)),
       pathList,
     );
@@ -535,7 +535,7 @@ class Actions {
       R.assoc("selected", true),
     );
 
-    const afterSelectTree = (_tree, _lensPathList) =>
+    const selectMatchingNodes = (_tree, _lensPathList) =>
       R.reduce(
         (_accTree, _lensPath) =>
           R.over(_lensPath, selectNode, _accTree),
@@ -543,9 +543,51 @@ class Actions {
         _lensPathList,
       );
 
-    return R.pipe(afterSelectTree, MdAst.convertToMd)(
+    return R.pipe(selectMatchingNodes, MdAst.convertToMd)(
       tree,
-      parentPathLensList,
+      parentLensPathList,
+    );
+  };
+
+  static selectChildren = (md) => {
+    const tree = MdAst.buildTree(md);
+    const pathList = MdAst.findPath(
+      R.propEq(true, "selected"),
+      tree,
+    );
+
+    const childrenLensPathList = R.pipe(
+      R.map((_parentPath) => {
+        const children = R.prop(
+          "children",
+          R.view(R.lensPath(_parentPath), tree),
+        );
+        return R.pipe(
+          R.map((_childrenIndex) =>
+            R.concat(_parentPath, ["children", _childrenIndex]),
+          ),
+          R.map((_path) => R.lensPath(_path)),
+        )(R.range(0, children.length));
+      }),
+      R.unnest,
+    )(pathList);
+
+    const selectNode = R.when(
+      (_node) => !R.propEq("root", "type", _node),
+      R.assoc("selected", true),
+    );
+
+    const selectMatchingNodes = (_tree, _lensPathList) =>
+      R.reduce(
+        (_accTree, _lensPath) =>
+          R.over(_lensPath, selectNode, _accTree),
+        _tree,
+        _lensPathList,
+      );
+
+    return R.pipe(selectMatchingNodes, MdAst.convertToMd)(
+      tree,
+      childrenLensPathList,
     );
   };
 
@@ -583,6 +625,18 @@ class Actions {
         )(line),
       )(md);
     });
+
+  static addLine = (_content) =>
+    Utils.process((_lines) =>
+      R.insert(
+        R.findIndex(R.startsWith("%%SELECTED%%"), _lines) + 1,
+        _content,
+        _lines,
+      ),
+    );
+
+  static addLineAfterIndex = (_content, _lineIndex = -1) =>
+    Utils.process(R.insert(_lineIndex, _content));
 
   static delete = Utils.process(
     R.reject(R.startsWith("%%SELECTED%%")),
