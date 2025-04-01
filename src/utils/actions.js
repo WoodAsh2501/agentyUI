@@ -665,13 +665,26 @@ class Pipe {
         R.prop(_funcString, Actions),
         Utils.stepDebug(_funcString),
       ];
-    if (R.test(/(\w+)\(".*"\)/, _funcString)) {
-      const [fnName, arg] = R.pipe(
-        R.match(/(\w+)\("([^"]*)"\)/),
+    if (R.test(/(\w+)\(.*\)/, _funcString)) {
+      const [fnName, argString] = R.pipe(
+        R.match(/(\w+)\(([^)]*)\)/),
         R.slice(1, Infinity),
       )(_funcString);
+
+      const args = R.pipe(
+        R.split(","),
+        R.map(
+          R.ifElse(
+            // 检测是否为字符串
+            R.test(/['"]/),
+            R.replace(/['"]/g, ""),
+            (_arg) => +_arg,
+          ),
+        ),
+      )(argString);
+
       return [
-        Actions[fnName](arg),
+        R.apply(Actions[fnName], args),
         Utils.stepDebug(_funcString),
       ];
     }
@@ -685,7 +698,7 @@ class Pipe {
    * @returns {Array<Function>} 函数数组
    */
   static parseFlow = R.pipe(
-    R.split(","),
+    R.split(/,(?![^(]*\))/),
     R.map(R.pipe(R.trim, Pipe.parseFuncString)),
     R.flatten,
   );
