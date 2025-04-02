@@ -1,4 +1,6 @@
-class LLMModel {
+import 'dotenv/config';
+
+class LLMBase {
   constructor(apiKey, model) {
     this.apiKey = apiKey;
     this.model = model;
@@ -6,14 +8,17 @@ class LLMModel {
   }
 
   async sendMessage(message) {
-    throw new Error("sendMessage method must be implemented by subclass");
+    throw new Error(
+      "sendMessage method must be implemented by subclass",
+    );
   }
 }
 
-class GLM extends LLMModel {
+class GLM extends LLMBase {
   constructor(apiKey) {
-    super(apiKey, "glm-4");
-    this.url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+    super(apiKey, "glm-4-air");
+    this.url =
+      "https://open.bigmodel.cn/api/paas/v4/chat/completions";
   }
 
   async sendMessage(prompt) {
@@ -41,7 +46,9 @@ class GLM extends LLMModel {
       });
 
       if (!response.ok) {
-        throw new Error(`Send error. Status: ${response.status}`);
+        throw new Error(
+          `Send error. Status: ${response.status}`,
+        );
       }
 
       return await response.json();
@@ -53,15 +60,12 @@ class GLM extends LLMModel {
 }
 
 export default class LLM {
-  // static LLMModel = new GLM(import.meta.env.VITE_AGENTUI_GLMTOKEN);
-  static LLMModel = new GLM(
-    import.meta.env.VITE_AGENTUI_GLMTOKEN
+  static LLMBase = new GLM(
+    process.env.AGENTYUI_GLMTOKEN
   );
   static async executePrompt(prompt) {
-    console.log("Sending to llm:", {
-      msg: prompt,
-    });
-    const data = await this.LLMModel.sendMessage(prompt);
+    console.log(prompt);
+    const data = await this.LLMBase.sendMessage(prompt);
     const response = data.choices[0].message.content;
     return response;
   }
