@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import dotenv from "dotenv";
 
 class LLMBase {
   constructor(apiKey, model) {
@@ -60,12 +60,17 @@ class GLM extends LLMBase {
 }
 
 export default class LLM {
-  static LLMBase = new GLM(
-    process.env.AGENTYUI_GLMTOKEN
-  );
+  static getToken = () => {
+    if (import.meta?.env) {
+      return import.meta.env.VITE_AGENTYUI_GLMTOKEN;
+    }
+    dotenv.config({ path: "../../.env" });
+    return process.env.VITE_AGENTYUI_GLMTOKEN;
+  };
+
+  static LLMAgent = new GLM(this.getToken());
   static async executePrompt(prompt) {
-    console.log(prompt);
-    const data = await this.LLMBase.sendMessage(prompt);
+    const data = await this.LLMAgent.sendMessage(prompt);
     const response = data.choices[0].message.content;
     return response;
   }
