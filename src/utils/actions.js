@@ -485,6 +485,18 @@ class MdAst {
 }
 
 class Actions {
+  static input = R.curry((_inputValue, _md) => [
+    _inputValue,
+    _md,
+  ]);
+
+  static selectByType = (_type) =>
+    Utils.process(
+      R.map(
+        Utils.addSelectedSign(R.includes(`agentyui:${_type}`)),
+      ),
+    );
+
   static selectByPrompt = R.curry(async (selectPrompt, md) => {
     const prompt = `
   你是一个Markdown处理助手，你的任务是根据给定的筛选条件处理Markdown文件。以下是必须严格遵守的规则：
@@ -531,6 +543,15 @@ class Actions {
       LLM.executePrompt(prompt),
     );
   });
+
+  static selectByIndex = (_selectedIndex) =>
+    Utils.process(
+      Utils.indexedMap((_line, _index) =>
+        Utils.addSelectedSign(() => _index === _selectedIndex)(
+          _line,
+        ),
+      ),
+    );
 
   static selectById = (id) =>
     Utils.process(
@@ -645,14 +666,19 @@ class Actions {
       )(md);
     });
 
-  static addLine = (_content) =>
-    Utils.process((_lines) =>
-      R.insert(
-        R.findIndex(R.startsWith("%%SELECTED%%"), _lines) + 1,
-        _content,
-        _lines,
-      ),
-    );
+  static addLine = R.curry((_itemType, _content, _md) =>
+    Utils.process(
+      (_lines) =>
+        R.insert(
+          R.findIndex(R.startsWith("%%SELECTED%%"), _lines) + 1,
+          _itemType !== "text"
+            ? `[${_content}](agentyui:${_itemType})`
+            : _content,
+          _lines,
+        ),
+      _md,
+    ),
+  );
 
   static addLineAfterIndex = (_content, _lineIndex = -1) =>
     Utils.process(R.insert(_lineIndex, _content));
@@ -661,7 +687,7 @@ class Actions {
     R.reject(R.startsWith("%%SELECTED%%")),
   );
 
-  static edit = (content) =>
+  static edit = R.curry((content, md) =>
     Utils.process(
       R.map(
         R.when(
@@ -669,7 +695,8 @@ class Actions {
           R.always("%%SELECTED%%" + content),
         ),
       ),
-    );
+    )(md),
+  );
 
   static clean = Utils.process(
     R.map(R.replace(regExp.startingSelectedSign, "")),
