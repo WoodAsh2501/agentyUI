@@ -181,11 +181,10 @@ const regExp = {
   startingListMark: /- /g,
 };
 
-class Utils {
-  // static debug = R.tap((value) => console.dir(value));
+export class Utils {
   static debug = (value) => {
-    console.log(JSON.stringify(value, null, 2));
-    console.log("\n");
+    console.dir(value);
+    console.dir("\n");
   };
 
   static stepDebug = (_fnName) => (_value) => {
@@ -194,10 +193,6 @@ class Utils {
   };
 
   static getResponse = R.pipe(JSON.parse, R.prop("response"));
-
-  static makeTree = (lineArray) => {
-    const node = { type };
-  };
 
   static process = R.curry((mainFn, content) =>
     R.pipe(R.split("\n"), mainFn, R.join("\n"))(content),
@@ -211,6 +206,13 @@ class Utils {
       ),
       R.concat("%%SELECTED%%"),
     )(line),
+  );
+
+  static splitTemplate = R.pipe(
+    R.split("---"),
+    R.slice(1, Infinity),
+    R.over(R.lensIndex(0), (_str) => jsyaml.load(_str)),
+    R.over(R.lensIndex(1), R.trim),
   );
 
   static asyncPipe = (...fns) =>
