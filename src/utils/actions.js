@@ -238,11 +238,20 @@ class MdAst {
         [R.T, R.always("paragraph")],
       ]),
     )(_text),
+    itemType: R.pipe(
+      R.match(regExp.itemType),
+      R.prop(2),
+      R.defaultTo(null),
+    )(_text),
     content: R.pipe(
       R.replace(regExp.nodeId, ""),
       R.replace(regExp.startingSelectedSign, ""),
       R.replace(regExp.startingHashTag, ""),
       R.replace(regExp.startingListMark, ""),
+      R.when(
+        R.test(regExp.itemType),
+        R.pipe(R.match(regExp.itemType), R.prop(1)),
+      ),
       R.trim,
     )(_text),
     children: [],
@@ -353,6 +362,14 @@ class MdAst {
     this.generateIdForAllNodes,
     this.moveToParentForAllNodes,
     R.prop(0),
+  );
+
+  static buildFlatNodesList = R.pipe(
+    R.trim,
+    R.split("\n"),
+    // R.filter(R.isNotEmpty),
+    R.map(this.nodeify),
+    this.generateIdForAllNodes,
   );
 
   static findPath = (_predicate, _tree) => {
