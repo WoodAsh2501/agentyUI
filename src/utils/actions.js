@@ -225,7 +225,7 @@ export class Utils {
   static indexedMap = R.addIndex(R.map);
 }
 
-class MdAst {
+export class MdAst {
   static nodeify = (_text) => ({
     type: R.pipe(
       R.replace(regExp.startingSelectedSign, ""),
@@ -351,6 +351,7 @@ class MdAst {
   static buildTree = R.pipe(
     R.trim,
     R.split("\n"),
+    R.filter(R.isNotEmpty),
     R.map(this.nodeify),
     R.prepend({
       type: "root",
@@ -753,58 +754,89 @@ class Actions {
   });
 }
 
-class Pipe {
+export class Pipe {
+  static makeFuncStringParser = () => {
+    let __previousFuncString = ""; //Impure
+
+    return (_funcString) => {
+      if (R.has(_funcString, Actions)) {
+        if (R.startsWith("input", __previousFuncString)) {
+          __previousFuncString = _funcString;
+          return Utils.asyncPipe(
+            R.apply(R.prop(_funcString, Actions)),
+            Utils.stepDebug(_funcString),
+          );
+        }
+
+        __previousFuncString = _funcString;
+        return Utils.asyncPipe(
+          R.prop(_funcString, Actions),
+          Utils.stepDebug(_funcString),
+        );
+      }
+
+      if (R.test(/(\w+)\(.*\)/, _funcString)) {
+        const [fnName, argString] = R.pipe(
+          R.match(/(\w+)\(([^)]*)\)/),
+          R.slice(1, Infinity),
+        )(_funcString);
+
+        const args = R.pipe(
+          R.split(","),
+          R.map(
+            R.ifElse(
+              // 检测是否为字符串
+              R.test(/['"]/),
+              R.replace(/['"]/g, ""),
+              (_arg) => +_arg,
+            ),
+          ),
+        )(argString);
+
+        if (R.startsWith("input", __previousFuncString)) {
+          __previousFuncString = _funcString;
+          return Utils.asyncPipe(
+            R.apply(R.apply(Actions[fnName], args)),
+            Utils.stepDebug(_funcString),
+          );
+        }
+
+        __previousFuncString = _funcString;
+        return Utils.asyncPipe(
+          R.apply(Actions[fnName], args),
+          Utils.stepDebug(_funcString),
+        );
+      }
+
+      console.error("Function not exist:", _funcString);
+      __previousFuncString = _funcString;
+      return _funcString;
+    };
+  };
+
   /**
    * 解析函数字符串
    * @param {String} 函数字符串
    * @returns {[Function, Function]} 目标函数与debug函数组成的数组
    */
-  static parseFuncString = (_funcString) => {
-    if (R.has(_funcString, Actions))
-      return [
-        R.prop(_funcString, Actions),
-        Utils.stepDebug(_funcString),
-      ];
-    if (R.test(/(\w+)\(.*\)/, _funcString)) {
-      const [fnName, argString] = R.pipe(
-        R.match(/(\w+)\(([^)]*)\)/),
-        R.slice(1, Infinity),
-      )(_funcString);
-
-      const args = R.pipe(
-        R.split(","),
-        R.map(
-          R.ifElse(
-            // 检测是否为字符串
-            R.test(/['"]/),
-            R.replace(/['"]/g, ""),
-            (_arg) => +_arg,
-          ),
-        ),
-      )(argString);
-
-      return [
-        R.apply(Actions[fnName], args),
-        Utils.stepDebug(_funcString),
-      ];
-    }
-    console.error("Function not exist:", _funcString);
-    return _funcString;
-  };
+  static parseFuncString = Pipe.makeFuncStringParser();
 
   /**
    * 解析工作流字符串，转换为函数数组
    * @param {String} 工作流字符串
    * @returns {Array<Function>} 函数数组
    */
-  static parseFlow = R.pipe(
-    R.split(/,(?![^(]*\))/),
-    R.map(R.pipe(R.trim, Pipe.parseFuncString)),
-    R.flatten,
+  static parseFlow = R.ifElse(
+    R.isNil,
+    R.always(null),
+    R.pipe(
+      R.split(/,(?![^(]*\))/),
+      R.map(R.pipe(R.trim, Pipe.parseFuncString)),
+    ),
   );
 
   /**
-   * 将工作流应用到Markdown
+   * 解析工作流字符串，转换为单一函数
    * @param {String} flowString 工作流字符串，例如 "selectEven, delete, sortByPrompt("从小到大排序"), clean"
    * @param {String} md Markdown数据
    * @returns {Promise<any>} 工作流处理结果
@@ -813,8 +845,10 @@ class Pipe {
     const flow = this.parseFlow(flowString);
     return Utils.asyncPipe(
       R.trim,
-      Utils.stepDebug("input"),
+      Utils.stepDebug("source"),
       ...flow,
+      Actions.clean,
+      Utils.debug("Action complete."),
     )(md);
   });
 }
