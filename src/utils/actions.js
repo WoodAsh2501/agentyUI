@@ -288,6 +288,18 @@ export class MdAst {
     return R.pipe(deepFind, flattenNestedPath)(_tree);
   };
 
+  static applyFuncToLensPathList = (
+    _tree,
+    _func,
+    _lensPathList,
+  ) =>
+    R.reduce(
+      (_accTree, _lensPath) =>
+        R.over(_lensPath, _func, _accTree),
+      _tree,
+      _lensPathList,
+    );
+
   static convertToMd = (_tree) => {
     const getMd = (_accMd, _node) => {
       const typeDict = {
@@ -327,8 +339,16 @@ export class MdAst {
       const childrenMd = R.reduce(getMd, [], childrenList);
       return R.concat(_accMd, [content, ...childrenMd]);
     };
-
-    return R.pipe(getMd, R.join("\n"), R.trim)([], _tree);
+    const tree = R.is(Array, _tree)
+      ? {
+          type: "root",
+          content: "",
+          children: _tree,
+          selected: false,
+          id: "__root",
+        }
+      : _tree;
+    return R.pipe(getMd, R.join("\n"), R.trim)([], tree);
   };
 }
 
@@ -337,6 +357,13 @@ class Actions {
     _inputValue,
     _md,
   ]);
+
+  static getSelected = (_md) => {
+    const selectedContent = Utils.process(
+      R.find(R.startsWith("%%SELECTED%%")),
+    )(_md);
+    return [selectedContent, _md];
+  };
 
   static selectByType = (_type) =>
     Utils.process(
@@ -401,10 +428,11 @@ class Actions {
       ),
     );
 
-  static selectById = (id) =>
+  static selectById = R.curry((id, md) =>
     Utils.process(
       R.map(Utils.addSelectedSign(R.endsWith(`{#${id}}`))),
-    );
+    )(md),
+  );
 
   static selectParent = (md) => {
     const tree = MdAst.buildTree(md);
@@ -535,12 +563,38 @@ class Actions {
     R.reject(R.startsWith("%%SELECTED%%")),
   );
 
+  static numberAdd = R.curry((value, md) =>
+    R.pipe(
+      MdAst.buildFlatNodesList,
+      R.map(
+        R.when(R.propEq(true, "selected"), (_node) => {
+          const content = _node.content;
+          return R.assoc(
+            "content",
+            R.toString(R.add(content, value)),
+          )(_node);
+        }),
+      ),
+      MdAst.convertToMd,
+    )(md),
+  );
+
   static edit = R.curry((content, md) =>
     Utils.process(
       R.map(
         R.when(
           R.startsWith("%%SELECTED%%"),
-          R.always("%%SELECTED%%" + content),
+          R.ifElse(
+            R.test(regExp.itemType),
+            (line) => {
+              const [_, label, itemType] = R.match(
+                regExp.itemType,
+                line,
+              );
+              return `%%SELECTED%%[${content}](${itemType})`;
+            },
+            R.always("%%SELECTED%%" + content),
+          ),
         ),
       ),
     )(md),
@@ -593,12 +647,39 @@ class Actions {
 
   {"response": "000\\n%%SELECTED%%167\\n%%SELECTED%%124\\n%%SELECTED%%100"}
 `;
-
     return R.andThen(
       Utils.getResponse,
       LLM.executePrompt(prompt),
     );
   });
+
+  static judgeByPrompt = R.curry(
+    async (judgePrompt, input, md) => {
+      const prompt = `
+  你是一个LLM判断器，根据用户的指令，判断用户输入的类型，并按要求返回对应的值。
+  
+  以下是用户的要求：${judgePrompt}
+
+  以下是你要判断的内容：${input}
+
+  请根据要求，返回对应的值。除了用户要求的返回值以外，不要输出无关内容。示例：用户要求判断输入是否是中文，如果是则返回true，否则返回false
+  
+  用户输入：12314
+  你的输出：{"response": "false"}
+
+  用户输入：你好
+  你的输出：{"response": "true"}
+`;
+
+      return R.andThen(
+        R.pipe(Utils.getResponse, (_response) => [
+          _response,
+          md,
+        ]),
+        LLM.executePrompt(prompt),
+      );
+    },
+  );
 }
 
 export class Pipe {
