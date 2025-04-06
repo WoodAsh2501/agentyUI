@@ -683,22 +683,18 @@ class Actions {
 }
 
 export class Pipe {
-  static makeFuncStringParser = () => {
-    let __previousFuncString = ""; //Impure
+  static flexFunction = (_func) => (_param) => {
+    if (R.is(Array, _param)) {
+      return R.apply(_func, _param);
+    }
+    return _func(_param);
+  };
 
+  static makeFuncStringParser = () => {
     return (_funcString) => {
       if (R.has(_funcString, Actions)) {
-        if (R.startsWith("input", __previousFuncString)) {
-          __previousFuncString = _funcString;
-          return Utils.asyncPipe(
-            R.apply(R.prop(_funcString, Actions)),
-            Utils.stepDebug(_funcString),
-          );
-        }
-
-        __previousFuncString = _funcString;
         return Utils.asyncPipe(
-          R.prop(_funcString, Actions),
+          Pipe.flexFunction(R.prop(_funcString, Actions)),
           Utils.stepDebug(_funcString),
         );
       }
@@ -721,23 +717,13 @@ export class Pipe {
           ),
         )(argString);
 
-        if (R.startsWith("input", __previousFuncString)) {
-          __previousFuncString = _funcString;
-          return Utils.asyncPipe(
-            R.apply(R.apply(Actions[fnName], args)),
-            Utils.stepDebug(_funcString),
-          );
-        }
-
-        __previousFuncString = _funcString;
         return Utils.asyncPipe(
-          R.apply(Actions[fnName], args),
+          Pipe.flexFunction(R.apply(Actions[fnName], args)),
           Utils.stepDebug(_funcString),
         );
       }
 
       console.error("Function not exist:", _funcString);
-      __previousFuncString = _funcString;
       return _funcString;
     };
   };
