@@ -31,6 +31,7 @@ export class Utils {
   static debug = (value) => {
     console.dir(value);
     console.dir("\n");
+    return value;
   };
 
   static stepDebug = (_fnName) => (_value) => {
