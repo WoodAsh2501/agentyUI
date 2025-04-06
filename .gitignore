@@ -31,3 +31,4 @@ coverage
 .env
 src/utils/tempCodeRunnerFile.js
 .md
+src/utils/test.js

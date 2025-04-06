@@ -1,23 +1,6 @@
 import LLM from "./llm.js";
 import * as R from "ramda";
 import * as jsyaml from "js-yaml";
-// import { useAppStore } from "@/stores/appStore.js";
-
-const md = `
-# TodoList
-## 重要且紧急
-- [事项1](agentyui:item)
-- [事项2](agentyui:item)
-## 重要但不紧急
-- [事项3](agentyui:item)
-- [事项4](agentyui:item)
-## 不重要但紧急
-- [事项5](agentyui:item)
-- [事项6](agentyui:item)
-## 不重要且不紧急
-- [事项7](agentyui:item)
-- [事项8](agentyui:item)
-`;
 
 const regExp = {
   nodeId: /\{#(\w+)\}/,
@@ -766,12 +749,3 @@ export class Pipe {
     )(md);
   });
 }
-
-const flowString1 = `selectByPrompt("选择奇数项"), delete, sortByPrompt("从小到大排序"), selectEven`;
-const flowString2 = `selectTail("1"), selectParent`;
-
-Pipe.pipeFunction(flowString2, md).then((result) =>
-  console.log(result),
-);
-
-// console.log(Actions.selectParent(md));
